@@ -1,6 +1,7 @@
 """Tests for service registry."""
 import os
 import tempfile
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -132,3 +133,26 @@ services:
         registry = get_service_registry()
         assert "whisper" in registry
         assert "kokoro" in registry
+
+
+class TestActiveServices:
+    def test_get_active_services_by_type_none_running(self):
+        from voice_mode.services import get_active_services_by_type, ServiceType
+
+        with patch('voice_mode.utils.services.common.check_service_status', return_value=("not_available", None)):
+            result = get_active_services_by_type(ServiceType.TTS)
+            assert result == []
+
+    def test_get_active_services_by_type_one_running(self):
+        from voice_mode.services import get_active_services_by_type, ServiceType, BUILTIN_SERVICES
+
+        kokoro_port = BUILTIN_SERVICES["kokoro"].port
+
+        def mock_status(port):
+            if port == kokoro_port:
+                return ("running", MagicMock())
+            return ("not_available", None)
+
+        with patch('voice_mode.utils.services.common.check_service_status', side_effect=mock_status):
+            result = get_active_services_by_type(ServiceType.TTS)
+            assert "kokoro" in result

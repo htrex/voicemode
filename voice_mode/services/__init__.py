@@ -7,6 +7,7 @@ from .registry import (
     load_user_services,
     get_service_registry,
     get_service_config,
+    get_active_services_by_type,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "load_user_services",
     "get_service_registry",
     "get_service_config",
+    "get_active_services_by_type",
 ]

@@ -112,3 +112,30 @@ def get_service_config(service_name: str) -> ServiceConfig:
         available = ", ".join(sorted(registry.keys()))
         raise ValueError(f"Unknown service: {service_name}. Available: {available}")
     return registry[service_name]
+
+
+def get_active_services_by_type(service_type: ServiceType) -> list[str]:
+    """Find all running services of a given type.
+
+    Args:
+        service_type: Type of service (TTS, STT, INTERNAL)
+
+    Returns:
+        List of service names that are currently running
+    """
+    from voice_mode.utils.services.common import check_service_status
+
+    active = []
+    registry = get_service_registry()
+
+    for name, config in registry.items():
+        if config.type != service_type:
+            continue
+        if config.port == 0:  # Services like 'connect' don't use ports
+            continue
+
+        status, _ = check_service_status(config.port)
+        if status == "running":
+            active.append(name)
+
+    return active
