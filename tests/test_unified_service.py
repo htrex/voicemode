@@ -73,20 +73,20 @@ class TestUnifiedServiceTool:
     async def test_start_whisper_service(self):
         """Test starting whisper service"""
         with patch('voice_mode.tools.service.find_process_by_port', side_effect=[None, MagicMock()]), \
-             patch('voice_mode.tools.service.find_whisper_server', return_value="/path/to/whisper-server"), \
-             patch('voice_mode.tools.service.find_whisper_model', return_value="/path/to/model.bin"), \
+             patch('voice_mode.utils.services.whisper_helpers.find_whisper_server', return_value="/path/to/whisper-server"), \
+             patch('voice_mode.utils.services.whisper_helpers.find_whisper_model', return_value="/path/to/model.bin"), \
              patch('subprocess.Popen') as mock_popen, \
              patch('subprocess.run') as mock_run, \
              patch('pathlib.Path.exists', return_value=False), \
              patch('asyncio.sleep'):
-            
+
             mock_process = MagicMock()
             mock_process.poll.return_value = None
             mock_process.pid = 12345
             mock_process.communicate.return_value = (b"", b"")
             mock_popen.return_value = mock_process
             mock_run.return_value = MagicMock(returncode=0)
-            
+
             result = await service("whisper", "start")
             assert "✅" in result
             assert "started successfully" in result

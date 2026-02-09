@@ -29,69 +29,20 @@ def get_service_config_vars(service_name: str) -> Dict[str, Any]:
     - Service-specific binaries/dirs as needed
 
     Config like ports/models is now handled by start scripts via voicemode.env
+
+    Uses the service registry to dynamically call the appropriate config_vars_fn,
+    enabling user-defined services without code changes.
     """
-    voicemode_dir = os.path.expanduser(os.environ.get("VOICEMODE_BASE_DIR", "~/.voicemode"))
-    home = os.path.expanduser("~")
+    from voice_mode.services.helpers import call_function_by_path, get_generic_config_vars
 
-    if service_name == "whisper":
-        # Find whisper start script
-        whisper_dir = os.path.join(voicemode_dir, "services", "whisper")
-        start_script = os.path.join(whisper_dir, "bin", "start-whisper-server.sh")
+    config = get_service_config(service_name)
 
-        return {
-            "HOME": home,
-            "START_SCRIPT": start_script,
-        }
-    elif service_name == "kokoro":
-        kokoro_dir = find_kokoro_fastapi()
-        if not kokoro_dir:
-            kokoro_dir = os.path.join(voicemode_dir, "services", "kokoro")
-
-        # Find start script
-        start_script = None
-        if platform.system() == "Darwin":
-            start_script = Path(kokoro_dir) / "start-gpu_mac.sh"
-        else:
-            # On Linux, prefer GPU script if GPU is available, otherwise use CPU script
-            if has_gpu_support():
-                possible_scripts = [
-                    Path(kokoro_dir) / "start-gpu.sh",
-                    Path(kokoro_dir) / "start-cpu.sh"
-                ]
-            else:
-                possible_scripts = [
-                    Path(kokoro_dir) / "start-cpu.sh",
-                    Path(kokoro_dir) / "start-gpu.sh"
-                ]
-
-            for script in possible_scripts:
-                if script.exists():
-                    start_script = script
-                    break
-
-        return {
-            "HOME": home,
-            "START_SCRIPT": str(start_script) if start_script and start_script.exists() else "",
-            "KOKORO_DIR": kokoro_dir,
-        }
-    elif service_name == "voicemode":
-        # VoiceMode serve service - runs the HTTP MCP server
-        start_script = os.path.join(voicemode_dir, "services", "voicemode", "bin", "start-voicemode-serve.sh")
-
-        return {
-            "HOME": home,
-            "START_SCRIPT": start_script,
-        }
-    elif service_name == "connect":
-        # VoiceMode connect service - runs voicemode connect standby for remote wake
-        start_script = os.path.join(voicemode_dir, "services", "connect", "bin", "start-voicemode-connect.sh")
-
-        return {
-            "HOME": home,
-            "START_SCRIPT": start_script,
-        }
+    if config.config_vars_fn:
+        # Dynamically call the config vars function
+        return call_function_by_path(config.config_vars_fn)
     else:
-        raise ValueError(f"Unknown service: {service_name}")
+        # Fall back to generic config vars for user-defined services
+        return get_generic_config_vars(config)
 
 
 async def install_voicemode_start_script() -> Dict[str, Any]:
@@ -305,93 +256,15 @@ async def status_service(service_name: str) -> str:
         else:
             uptime_str = f"{seconds}s"
         
-        # Service-specific info
+        # Service-specific info via registry
         extra_info_parts = []
-        
-        if service_name == "whisper":
-            # Get model info
-            model = "unknown"
-            model_name = None
-            for i, arg in enumerate(cmdline):
-                if arg == "--model" and i + 1 < len(cmdline):
-                    model = Path(cmdline[i + 1]).name
-                    # Extract model name from filename (e.g., ggml-large-v3-turbo.bin -> large-v3-turbo)
-                    if model.startswith("ggml-") and model.endswith(".bin"):
-                        model_name = model[5:-4]
-                    break
-            extra_info_parts.append(f"Model: {model}")
-            
-            # Get version and capability info
+
+        if config.status_info_fn:
             try:
-                from voice_mode.utils.services.whisper_version import get_whisper_version_info, check_coreml_model_exists
-                version_info = get_whisper_version_info()
-                
-                if version_info.get("version"):
-                    extra_info_parts.append(f"Version: {version_info['version']}")
-                elif version_info.get("commit"):
-                    extra_info_parts.append(f"Commit: {version_info['commit']}")
-                
-                # Show Core ML status on Apple Silicon
-                if platform.machine() == "arm64" and platform.system() == "Darwin":
-                    if version_info.get("coreml_supported"):
-                        # Check if the current model has Core ML
-                        if model_name and check_coreml_model_exists(model_name):
-                            extra_info_parts.append("Core ML: ✓ Enabled & Active")
-                        else:
-                            extra_info_parts.append("Core ML: ✓ Supported (model not converted)")
-                    else:
-                        extra_info_parts.append("Core ML: ✗ Not compiled in")
-                
-                # Show GPU support
-                gpu_support = []
-                if version_info.get("metal_supported"):
-                    gpu_support.append("Metal")
-                if version_info.get("cuda_supported"):
-                    gpu_support.append("CUDA")
-                if gpu_support:
-                    extra_info_parts.append(f"GPU: {', '.join(gpu_support)}")
-            except:
-                pass
-                
-        elif service_name == "kokoro":
-            # Try to get version info
-            try:
-                from voice_mode.utils.services.version_info import get_kokoro_version
-                version_info = get_kokoro_version()
-                if version_info.get("api_version"):
-                    extra_info_parts.append(f"API Version: {version_info['api_version']}")
-                elif version_info.get("version"):
-                    extra_info_parts.append(f"Version: {version_info['version']}")
-            except:
-                pass
-        elif service_name == "voicemode":
-            # VoiceMode HTTP server info
-            # Extract transport and host from command line
-            transport = "streamable-http"  # default
-            host = "127.0.0.1"  # default
-            for i, arg in enumerate(cmdline):
-                if arg == "--transport" and i + 1 < len(cmdline):
-                    transport = cmdline[i + 1]
-                elif arg == "--host" and i + 1 < len(cmdline):
-                    host = cmdline[i + 1]
-            extra_info_parts.append(f"Transport: {transport}")
-            extra_info_parts.append(f"Host: {host}")
-            # Try to get version info
-            try:
-                from voice_mode.version import __version__
-                extra_info_parts.append(f"Version: {__version__}")
-            except:
-                pass
-        elif service_name == "connect":
-            # VoiceMode Connect standby info (WebSocket client, no port)
-            extra_info_parts.append("Mode: standby")
-            extra_info_parts.append("Type: WebSocket client")
-            # Try to get version info
-            try:
-                from voice_mode.version import __version__
-                extra_info_parts.append(f"Version: {__version__}")
-            except:
-                pass
+                from voice_mode.services.helpers import call_function_by_path
+                extra_info_parts = call_function_by_path(config.status_info_fn, proc, cmdline)
+            except Exception as e:
+                logger.debug(f"Error calling status_info_fn: {e}")
 
         extra_info = ""
         if extra_info_parts:
@@ -501,75 +374,20 @@ async def start_service(service_name: str) -> str:
                 error = result.stderr or result.stdout
                 return f"❌ Failed to start {service_name}: {error}"
     
-    # Fallback to direct process start
-    if service_name == "whisper":
-        # Find whisper-server binary
-        whisper_bin = find_whisper_server()
-        if not whisper_bin:
-            return "❌ whisper-server not found. Please run whisper_install first."
-        
-        # Find model
-        model_file = find_whisper_model()
-        if not model_file:
-            return "❌ No Whisper model found. Please run download_model first."
-        
-        # Start whisper-server
-        cmd = [str(whisper_bin), "--host", "0.0.0.0", "--port", str(port), "--model", str(model_file)]
-        
-    elif service_name == "kokoro":
-        # Find kokoro installation
-        kokoro_dir = find_kokoro_fastapi()
-        if not kokoro_dir:
-            return "❌ kokoro-fastapi not found. Please run kokoro_install first."
-        
-        # Use appropriate start script
-        if platform.system() == "Darwin":
-            start_script = Path(kokoro_dir) / "start-gpu_mac.sh"
-        else:
-            # On Linux, prefer GPU script if GPU is available, otherwise use CPU script
-            if has_gpu_support():
-                # Try GPU scripts first
-                possible_scripts = [
-                    Path(kokoro_dir) / "start-gpu.sh",
-                    Path(kokoro_dir) / "start-cpu.sh"  # last resort
-                ]
-            else:
-                # No GPU, prefer CPU script
-                possible_scripts = [
-                    Path(kokoro_dir) / "start-cpu.sh",
-                    Path(kokoro_dir) / "start-gpu.sh"  # might work with CPU fallback
-                ]
-            
-            start_script = None
-            for script in possible_scripts:
-                if script.exists():
-                    start_script = script
-                    break
-        
-        if not start_script.exists():
-            return f"❌ Start script not found: {start_script}"
+    # Fallback to direct process start via registry
+    from voice_mode.services.helpers import call_function_by_path, get_generic_start_cmd
 
-        cmd = [str(start_script)]
-
-    elif service_name == "voicemode":
-        # Start voicemode serve command directly
-        # Use sys.executable to ensure we use the same Python that's running this script
-        import sys
-        cmd = [sys.executable, "-m", "voice_mode", "serve", "--port", str(port)]
-
-    elif service_name == "connect":
-        # Start voicemode connect standby directly
-        import sys
-        cmd = [sys.executable, "-m", "voice_mode", "connect", "standby"]
-
+    if config.start_cmd_fn:
+        cmd, cwd, error = call_function_by_path(config.start_cmd_fn, config)
     else:
-        return f"❌ Unknown service: {service_name}"
+        # Use generic start command for user-defined services
+        cmd, cwd, error = get_generic_start_cmd(config)
+
+    if error:
+        return f"❌ {error}"
 
     try:
         # Start the process
-        cwd = None
-        if service_name == "kokoro":
-            cwd = Path(kokoro_dir)
 
         process = subprocess.Popen(
             cmd,
@@ -694,8 +512,13 @@ async def enable_service(service_name: str) -> str:
     """Enable a service to start at boot/login.
 
     Uses create_service_file() as single source of truth for service file generation.
+    Uses the service registry for validation and auto-install, enabling user-defined
+    services without code changes.
     """
+    from voice_mode.services.helpers import call_function_by_path, validate_generic_pre_enable
+
     system = platform.system()
+    config = get_service_config(service_name)
 
     try:
         # Create service file using the unified function
@@ -704,40 +527,26 @@ async def enable_service(service_name: str) -> str:
         # Validate required components exist
         config_vars = get_service_config_vars(service_name)
 
-        if service_name == "whisper":
-            start_script = config_vars.get("START_SCRIPT", "")
-            if not start_script or not Path(start_script).exists():
-                return "❌ Whisper start script not found. Please run whisper_install first."
+        # Run pre-enable validation via registry
+        validation_error = None
+        if config.pre_enable_fn:
+            validation_error = call_function_by_path(config.pre_enable_fn, config_vars)
+        else:
+            # Use generic validation for user-defined services
+            validation_error = validate_generic_pre_enable(config_vars)
 
-        elif service_name == "kokoro":
-            start_script = config_vars.get("START_SCRIPT", "")
-            if not start_script or not Path(start_script).exists():
-                return "❌ Kokoro start script not found. Please run kokoro_install first."
+        # If validation failed and we have auto-install capability, try it
+        if validation_error and config.auto_install_fn:
+            install_result = await call_function_by_path(config.auto_install_fn)
+            if not install_result.get("success"):
+                return f"❌ {validation_error} Auto-install failed: {install_result.get('error', 'Unknown error')}"
+            start_script = install_result.get("start_script", "")
+            logger.info(f"Auto-installed start script at {start_script}")
+            # Clear the validation error since auto-install succeeded
+            validation_error = None
 
-        elif service_name == "voicemode":
-            start_script = config_vars.get("START_SCRIPT", "")
-            if not start_script or not Path(start_script).exists():
-                # Auto-install the start script for voicemode since it's built-in
-                install_result = await install_voicemode_start_script()
-                if not install_result.get("success"):
-                    return f"❌ Failed to install VoiceMode start script: {install_result.get('error', 'Unknown error')}"
-                start_script = install_result.get("start_script", "")
-                logger.info(f"Auto-installed VoiceMode start script at {start_script}")
-
-        elif service_name == "connect":
-            # Validate OAuth credentials exist before enabling connect service
-            credentials_file = Path.home() / ".voicemode" / "credentials"
-            if not credentials_file.exists():
-                return "❌ No credentials found. Run 'voicemode connect login' first to authenticate."
-
-            start_script = config_vars.get("START_SCRIPT", "")
-            if not start_script or not Path(start_script).exists():
-                # Auto-install the start script for connect since it's built-in
-                install_result = await install_voicemode_connect_script()
-                if not install_result.get("success"):
-                    return f"❌ Failed to install VoiceMode Connect start script: {install_result.get('error', 'Unknown error')}"
-                start_script = install_result.get("start_script", "")
-                logger.info(f"Auto-installed VoiceMode Connect start script at {start_script}")
+        if validation_error:
+            return f"❌ {validation_error}"
 
         # Create parent directories
         service_path.parent.mkdir(parents=True, exist_ok=True)
@@ -861,16 +670,11 @@ async def view_logs(service_name: str, lines: Optional[int] = None) -> str:
 
     try:
         if system == "Darwin":
-            # Use log show command
-            if service_name == "voicemode":
-                process_name = "voicemode-serve"
-            elif service_name == "connect":
-                process_name = "voicemode"  # connect runs as "voicemode connect standby"
-            else:
-                process_name = f"{service_name}-server"
+            # Use log show command with process_name from registry
+            process_name = config.process_name or f"{service_name}-server"
             cmd = [
                 "log", "show",
-                "--predicate", f'process == "{process_name}" OR process == "kokoro-fastapi"',
+                "--predicate", f'process == "{process_name}"',
                 "--last", f"{lines}",
                 "--style", "compact"
             ]
