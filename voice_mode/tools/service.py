@@ -930,7 +930,7 @@ async def view_logs(service_name: str, lines: Optional[int] = None) -> str:
 
 @mcp.tool()
 async def service(
-    service_name: Literal["whisper", "kokoro", "voicemode", "connect"],
+    service_name: str,
     action: Literal["status", "start", "stop", "restart", "enable", "disable", "logs"] = "status",
     lines: Optional[Union[int, str]] = None
 ) -> str:
@@ -938,8 +938,12 @@ async def service(
 
     Manage Whisper (STT), Kokoro (TTS), VoiceMode (HTTP MCP server), and Connect (standby) services.
 
+    Built-in services: whisper, kokoro, voicemode, connect.
+    User-defined services in ~/.voicemode/services.yaml are also supported.
+
     Args:
-        service_name: The service to manage ("whisper", "kokoro", "voicemode", or "connect")
+        service_name: The service to manage (e.g., "whisper", "kokoro", "voicemode", "connect",
+            or any user-defined service from ~/.voicemode/services.yaml)
         action: The action to perform (default: "status")
             - status: Show if service is running and resource usage
             - start: Start the service
@@ -960,6 +964,12 @@ async def service(
         service("connect", "enable")  # Enable Connect standby service for remote wake
         service("whisper", "logs", 100)  # View last 100 lines of Whisper logs
     """
+    # Validate service name against registry
+    try:
+        _ = get_service_config(service_name)
+    except ValueError as e:
+        return f"❌ {e}"
+
     # Convert lines to integer if provided as string
     if lines is not None and isinstance(lines, str):
         try:

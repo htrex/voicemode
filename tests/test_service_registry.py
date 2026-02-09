@@ -265,3 +265,14 @@ class TestMutualExclusion:
 
         # INTERNAL is not in (TTS, STT), so mutual exclusion should not apply
         assert ServiceType.INTERNAL not in (ServiceType.TTS, ServiceType.STT)
+
+
+class TestIntegration:
+    @pytest.mark.asyncio
+    async def test_unknown_service_returns_error(self):
+        """Unknown service should return helpful error."""
+        from voice_mode.tools.service import service
+
+        result = await service.fn("unknown_service", "status")
+        assert "Unknown service" in result
+        assert "whisper" in result  # Should list available services
