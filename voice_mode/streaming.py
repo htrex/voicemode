@@ -311,8 +311,18 @@ async def stream_pcm_audio(
                         logger.debug(f"Streamed {chunk_count} chunks, {bytes_received} bytes")
         
         # Wait for playback to finish
+        # Calculate remaining playback time based on bytes written
+        # PCM 16-bit mono at SAMPLE_RATE: 2 bytes per sample
+        audio_duration = bytes_received / (SAMPLE_RATE * 2)
+        elapsed_since_first_chunk = time.perf_counter() - first_chunk_time if first_chunk_time else 0
+        remaining_playback = max(0, audio_duration - elapsed_since_first_chunk + 0.1)  # +100ms buffer
+
+        if remaining_playback > 0:
+            logger.debug(f"Waiting {remaining_playback:.2f}s for playback to complete")
+            await asyncio.sleep(remaining_playback)
+
         stream.stop()
-        
+
         end_time = time.perf_counter()
 
         # Log TTS playback end with metrics
@@ -537,7 +547,18 @@ async def stream_with_buffering(
                 
             except Exception as e:
                 logger.error(f"Failed to decode final buffer: {e}")
-        
+
+        # Wait for playback to complete
+        # Calculate duration based on total samples written at sample_rate
+        total_samples = metrics.chunks_played * 1024  # Approximate
+        audio_duration = total_samples / sample_rate
+        elapsed = time.perf_counter() - start_time
+        remaining_playback = max(0, audio_duration - elapsed + 0.1)  # +100ms buffer
+
+        if remaining_playback > 0:
+            logger.debug(f"Waiting {remaining_playback:.2f}s for buffered playback to complete")
+            await asyncio.sleep(remaining_playback)
+
         metrics.generation_time = time.perf_counter() - start_time
         metrics.playback_time = metrics.generation_time  # Approximate
         
