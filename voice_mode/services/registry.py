@@ -165,7 +165,7 @@ def get_active_services_by_type(service_type: ServiceType) -> list[str]:
             continue
 
         status, _ = check_service_status(config.port)
-        if status == "running":
+        if status == "local":
             active.append(name)
 
     return active
