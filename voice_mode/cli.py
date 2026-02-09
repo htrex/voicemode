@@ -97,6 +97,9 @@ def voice_mode() -> None:
 #   voicemode service status [service]
 # etc.
 
+# Built-in services for CLI.
+# Note: MCP tool supports user-defined services from ~/.voicemode/services.yaml
+# CLI support for user services can be added later.
 VALID_SERVICES = ['whisper', 'kokoro', 'voicemode', 'connect']
 
 
