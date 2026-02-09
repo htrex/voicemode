@@ -12,11 +12,8 @@ from typing import Literal, Optional, Dict, Any, Union
 import psutil
 
 from voice_mode.server import mcp
-from voice_mode.config import WHISPER_PORT, KOKORO_PORT, SERVICE_AUTO_ENABLE
+from voice_mode.services import get_service_config
 from voice_mode.utils.services.common import find_process_by_port, check_service_status
-
-# Default port for VoiceMode serve command (HTTP MCP server)
-VOICEMODE_SERVE_PORT = 8765
 from voice_mode.utils.services.whisper_helpers import find_whisper_server, find_whisper_model
 from voice_mode.utils.services.kokoro_helpers import find_kokoro_fastapi, has_gpu_support, is_kokoro_starting_up
 
@@ -203,9 +200,8 @@ def load_service_template(service_name: str) -> str:
     system = platform.system()
     templates_dir = Path(__file__).parent.parent / "templates"
 
-    # Map service name to template name (voicemode uses "serve" in template names)
-    # connect uses "connect" directly (no mapping needed)
-    template_name = "serve" if service_name == "voicemode" else service_name
+    config = get_service_config(service_name)
+    template_name = config.template_name
 
     if system == "Darwin":
         template_path = templates_dir / "launchd" / f"com.voicemode.{template_name}.plist"
@@ -242,9 +238,9 @@ def create_service_file(service_name: str) -> tuple[Path, str]:
     # Format template with config vars
     content = template.format(**config_vars)
 
-    # Map service name to file name (voicemode uses "serve" in file names)
-    # connect uses "connect" directly (no mapping needed)
-    file_name = "serve" if service_name == "voicemode" else service_name
+    # Get file name from registry (template_name is used for file naming)
+    svc_config = get_service_config(service_name)
+    file_name = svc_config.template_name
 
     # Determine destination path
     if system == "Darwin":
@@ -261,6 +257,9 @@ def create_service_file(service_name: str) -> tuple[Path, str]:
 
 async def status_service(service_name: str) -> str:
     """Get status of a service."""
+    config = get_service_config(service_name)
+    port = config.port
+
     # Connect service is special - it's a WebSocket client, not a port listener
     if service_name == "connect":
         proc = find_connect_process()
@@ -270,15 +269,6 @@ async def status_service(service_name: str) -> str:
         status = "running"
         port = None  # Connect doesn't use a port
     else:
-        if service_name == "whisper":
-            port = WHISPER_PORT
-        elif service_name == "kokoro":
-            port = KOKORO_PORT
-        elif service_name == "voicemode":
-            port = VOICEMODE_SERVE_PORT
-        else:
-            port = 3000
-
         status, proc = check_service_status(port)
 
         if status == "not_available":
@@ -423,28 +413,22 @@ async def status_service(service_name: str) -> str:
 
 async def start_service(service_name: str) -> str:
     """Start a service."""
+    config = get_service_config(service_name)
+    port = config.port
+
     # Check if already running - connect uses process detection, others use port
     if service_name == "connect":
         if find_connect_process():
             return "Connect is already running"
         port = None
     else:
-        if service_name == "whisper":
-            port = WHISPER_PORT
-        elif service_name == "kokoro":
-            port = KOKORO_PORT
-        elif service_name == "voicemode":
-            port = VOICEMODE_SERVE_PORT
-        else:
-            port = 3000
         if find_process_by_port(port):
             return f"{service_name.capitalize()} is already running on port {port}"
 
     system = platform.system()
 
-    # Map service name to file name (voicemode uses "serve" in file names)
-    # connect uses "connect" directly
-    file_name = "serve" if service_name == "voicemode" else service_name
+    # Get file name from registry (template_name is used for file naming)
+    file_name = config.template_name
 
     # Helper to check if service is running
     def is_service_running():
@@ -610,22 +594,16 @@ async def start_service(service_name: str) -> str:
 
 async def stop_service(service_name: str) -> str:
     """Stop a service."""
-    # Connect uses process detection, others use port
+    config = get_service_config(service_name)
+    port = config.port
+
+    # Connect uses process detection, others use port (port=0 means no port)
     if service_name == "connect":
         port = None
-    elif service_name == "whisper":
-        port = WHISPER_PORT
-    elif service_name == "kokoro":
-        port = KOKORO_PORT
-    elif service_name == "voicemode":
-        port = VOICEMODE_SERVE_PORT
-    else:
-        port = 3000
     system = platform.system()
 
-    # Map service name to file name (voicemode uses "serve" in file names)
-    # connect uses "connect" directly
-    file_name = "serve" if service_name == "voicemode" else service_name
+    # Get file name from registry (template_name is used for file naming)
+    file_name = config.template_name
 
     # Check if managed by service manager
     if system == "Darwin":
@@ -771,8 +749,9 @@ async def enable_service(service_name: str) -> str:
                 return f"❌ Failed to enable {service_name} service: {error}"
 
         else:  # Linux
-            # Map service name to file name (voicemode uses "serve" in file names)
-            file_name = "serve" if service_name == "voicemode" else service_name
+            # Get file name from registry (template_name is used for file naming)
+            svc_config = get_service_config(service_name)
+            file_name = svc_config.template_name
             service_unit = f"voicemode-{file_name}.service"
 
             # Reload and enable systemd
@@ -800,8 +779,9 @@ async def disable_service(service_name: str) -> str:
     """Disable a service from starting at boot/login."""
     system = platform.system()
 
-    # Map service name to file name (voicemode uses "serve" in file names)
-    file_name = "serve" if service_name == "voicemode" else service_name
+    # Get file name from registry (template_name is used for file naming)
+    config = get_service_config(service_name)
+    file_name = config.template_name
 
     try:
         if system == "Darwin":
@@ -864,9 +844,9 @@ async def view_logs(service_name: str, lines: Optional[int] = None) -> str:
     system = platform.system()
     lines = lines or 50
 
-    # Map service name to file/log name (voicemode uses "serve" in file names)
-    # connect uses "connect" directly
-    log_name = "serve" if service_name == "voicemode" else service_name
+    # Get log name from registry (fallback to template_name if log_name not set)
+    config = get_service_config(service_name)
+    log_name = config.log_name or config.template_name
 
     try:
         if system == "Darwin":
@@ -1009,8 +989,9 @@ async def install_service(service_name: str) -> Dict[str, Any]:
         for key, value in config_vars.items():
             template_content = template_content.replace(f"{{{key}}}", str(value))
 
-        # Map service name to file name (voicemode uses "serve" in file names)
-        file_name = "serve" if service_name == "voicemode" else service_name
+        # Get file name from registry (template_name is used for file naming)
+        svc_config = get_service_config(service_name)
+        file_name = svc_config.template_name
 
         if system == "Darwin":
             # Install launchd plist
@@ -1038,8 +1019,9 @@ async def uninstall_service(service_name: str) -> Dict[str, Any]:
     try:
         system = platform.system()
 
-        # Map service name to file name (voicemode uses "serve" in file names)
-        file_name = "serve" if service_name == "voicemode" else service_name
+        # Get file name from registry (template_name is used for file naming)
+        config = get_service_config(service_name)
+        file_name = config.template_name
 
         if system == "Darwin":
             plist_path = Path.home() / "Library" / "LaunchAgents" / f"com.voicemode.{file_name}.plist"

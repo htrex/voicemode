@@ -11,6 +11,9 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Import registry to mock load_user_services
+from voice_mode.services import registry as services_registry
+
 # Import the service function - get the actual function from the tool decorator
 from voice_mode.tools.service import service as service_tool
 
@@ -144,6 +147,7 @@ class TestUnifiedServiceTool:
              patch('voice_mode.tools.service.load_service_template', return_value="template content") as mock_template, \
              patch('voice_mode.tools.service.find_whisper_server', return_value="/Users/test/.voicemode/services/whisper/build/bin/whisper-server"), \
              patch('voice_mode.tools.service.find_whisper_model', return_value="/path/to/model.bin"), \
+             patch.object(services_registry, 'load_user_services', return_value={}), \
              patch('pathlib.Path.exists', return_value=True), \
              patch('pathlib.Path.mkdir'), \
              patch('pathlib.Path.write_text'), \
@@ -187,6 +191,7 @@ class TestUnifiedServiceTool:
         with patch('platform.system', return_value='Linux'), \
              patch('voice_mode.tools.service.load_service_template', return_value=mock_template_content), \
              patch('voice_mode.tools.service.find_kokoro_fastapi', return_value="/path/to/kokoro"), \
+             patch.object(services_registry, 'load_user_services', return_value={}), \
              patch('pathlib.Path.exists', return_value=True), \
              patch('pathlib.Path.mkdir'), \
              patch('pathlib.Path.write_text'), \
@@ -207,6 +212,7 @@ class TestUnifiedServiceTool:
     async def test_disable_service_macos(self):
         """Test disabling service on macOS"""
         with patch('platform.system', return_value='Darwin'), \
+             patch.object(services_registry, 'load_user_services', return_value={}), \
              patch('pathlib.Path.exists', return_value=True), \
              patch('pathlib.Path.unlink'), \
              patch('subprocess.run') as mock_run:
@@ -257,6 +263,7 @@ class TestUnifiedServiceTool:
     async def test_view_logs_fallback_to_files(self):
         """Test fallback to log files when system logs unavailable"""
         with patch('platform.system', return_value='Darwin'), \
+             patch.object(services_registry, 'load_user_services', return_value={}), \
              patch('subprocess.run') as mock_run, \
              patch('pathlib.Path.exists', side_effect=[True, True]), \
              patch('builtins.open', mock_open(read_data="Log line 1\nLog line 2\n")):
@@ -289,6 +296,7 @@ class TestUnifiedServiceTool:
              patch('voice_mode.tools.service.load_service_template', return_value=mock_template_content), \
              patch('voice_mode.tools.service.find_whisper_server', return_value="/Users/test/.voicemode/services/whisper/build/bin/whisper-server"), \
              patch('voice_mode.tools.service.find_whisper_model', return_value="/path/to/model.bin"), \
+             patch.object(services_registry, 'load_user_services', return_value={}), \
              patch('pathlib.Path.exists', return_value=True), \
              patch('pathlib.Path.mkdir'), \
              patch('pathlib.Path.write_text') as mock_write, \
