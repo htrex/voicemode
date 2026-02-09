@@ -97,10 +97,31 @@ def voice_mode() -> None:
 #   voicemode service status [service]
 # etc.
 
-# Built-in services for CLI.
-# Note: MCP tool supports user-defined services from ~/.voicemode/services.yaml
-# CLI support for user services can be added later.
-VALID_SERVICES = ['whisper', 'kokoro', 'voicemode', 'connect']
+# Service names from registry (includes user-defined services)
+def get_valid_services():
+    """Get list of valid service names from registry."""
+    from voice_mode.services import get_service_registry
+    return sorted(get_service_registry().keys())
+
+
+class ServiceChoice(click.Choice):
+    """Dynamic Choice that loads services from registry."""
+
+    def __init__(self):
+        # Initialize with empty list, will be populated dynamically
+        super().__init__([], case_sensitive=False)
+
+    @property
+    def choices(self):
+        return get_valid_services()
+
+    @choices.setter
+    def choices(self, value):
+        pass  # Ignore static assignment
+
+
+# For commands that need the list (like status --all)
+BUILTIN_SERVICES = ['whisper', 'kokoro', 'voicemode', 'connect']
 
 
 @voice_mode_main_cli.group()
@@ -137,7 +158,7 @@ def service():
 
 
 @service.command('start')
-@click.argument('service_name', type=click.Choice(VALID_SERVICES, case_sensitive=False), metavar='SERVICE')
+@click.argument('service_name', type=ServiceChoice(), metavar='SERVICE')
 @click.help_option('-h', '--help')
 def service_start(service_name):
     """Start a voice service.
@@ -154,7 +175,7 @@ def service_start(service_name):
 
 
 @service.command('stop')
-@click.argument('service_name', type=click.Choice(VALID_SERVICES, case_sensitive=False), metavar='SERVICE')
+@click.argument('service_name', type=ServiceChoice(), metavar='SERVICE')
 @click.help_option('-h', '--help')
 def service_stop(service_name):
     """Stop a voice service.
@@ -171,7 +192,7 @@ def service_stop(service_name):
 
 
 @service.command('restart')
-@click.argument('service_name', type=click.Choice(VALID_SERVICES, case_sensitive=False), metavar='SERVICE')
+@click.argument('service_name', type=ServiceChoice(), metavar='SERVICE')
 @click.help_option('-h', '--help')
 def service_restart(service_name):
     """Restart a voice service.
@@ -188,7 +209,7 @@ def service_restart(service_name):
 
 
 @service.command('status')
-@click.argument('service_name', type=click.Choice(VALID_SERVICES, case_sensitive=False), required=False, metavar='SERVICE')
+@click.argument('service_name', type=ServiceChoice(), required=False, metavar='SERVICE')
 @click.help_option('-h', '--help')
 def service_status(service_name):
     """Show service status.
@@ -219,14 +240,14 @@ def service_status(service_name):
         # Show all services
         click.echo("VoiceMode Service Status")
         click.echo("=" * 50)
-        for svc in VALID_SERVICES:
+        for svc in get_valid_services():
             result = asyncio.run(status_service(svc))
             click.echo(f"\n{svc.upper()}:")
             click.echo(result)
 
 
 @service.command('enable')
-@click.argument('service_name', type=click.Choice(VALID_SERVICES, case_sensitive=False), metavar='SERVICE')
+@click.argument('service_name', type=ServiceChoice(), metavar='SERVICE')
 @click.help_option('-h', '--help')
 def service_enable(service_name):
     """Enable a service to start at boot/login.
@@ -247,7 +268,7 @@ def service_enable(service_name):
 
 
 @service.command('disable')
-@click.argument('service_name', type=click.Choice(VALID_SERVICES, case_sensitive=False), metavar='SERVICE')
+@click.argument('service_name', type=ServiceChoice(), metavar='SERVICE')
 @click.help_option('-h', '--help')
 def service_disable(service_name):
     """Disable a service from starting at boot/login.
@@ -268,7 +289,7 @@ def service_disable(service_name):
 
 
 @service.command('logs')
-@click.argument('service_name', type=click.Choice(VALID_SERVICES, case_sensitive=False), metavar='SERVICE')
+@click.argument('service_name', type=ServiceChoice(), metavar='SERVICE')
 @click.option('--lines', '-n', default=50, help='Number of log lines to show')
 @click.help_option('-h', '--help')
 def service_logs(service_name, lines):
@@ -289,7 +310,7 @@ def service_logs(service_name, lines):
 
 
 @service.command('health')
-@click.argument('service_name', type=click.Choice(VALID_SERVICES, case_sensitive=False), metavar='SERVICE')
+@click.argument('service_name', type=ServiceChoice(), metavar='SERVICE')
 @click.help_option('-h', '--help')
 def service_health(service_name):
     """Check the health endpoint of a service.
@@ -335,7 +356,7 @@ def service_health(service_name):
 
 
 @service.command('install')
-@click.argument('service_name', type=click.Choice(VALID_SERVICES, case_sensitive=False), metavar='SERVICE')
+@click.argument('service_name', type=ServiceChoice(), metavar='SERVICE')
 @click.option('--force', '-f', is_flag=True, help='Force reinstall even if already installed')
 @click.help_option('-h', '--help')
 def service_install(service_name, force):
