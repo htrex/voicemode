@@ -1,0 +1,25 @@
+# voicemode-generic.service
+# Generic template for user-defined VoiceMode services
+# Placeholders: {SERVICE_NAME}, {START_SCRIPT}, {HOME}
+
+[Unit]
+Description=VoiceMode Custom Service - {SERVICE_NAME}
+After=network.target
+
+[Service]
+Type=simple
+ExecStart={START_SCRIPT}
+WorkingDirectory={HOME}
+Restart=on-failure
+RestartSec=5
+RestartPreventExitStatus=127
+
+Environment="HOME={HOME}"
+Environment="PATH={HOME}/.cargo/bin:{HOME}/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=voicemode-{SERVICE_NAME}
+
+[Install]
+WantedBy=default.target
