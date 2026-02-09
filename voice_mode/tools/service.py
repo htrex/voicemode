@@ -12,7 +12,7 @@ from typing import Literal, Optional, Dict, Any, Union
 import psutil
 
 from voice_mode.server import mcp
-from voice_mode.services import get_service_config
+from voice_mode.services import get_service_config, ServiceType, get_active_services_by_type
 from voice_mode.utils.services.common import find_process_by_port, check_service_status
 from voice_mode.utils.services.whisper_helpers import find_whisper_server, find_whisper_model
 from voice_mode.utils.services.kokoro_helpers import find_kokoro_fastapi, has_gpu_support, is_kokoro_starting_up
@@ -415,6 +415,17 @@ async def start_service(service_name: str) -> str:
     """Start a service."""
     config = get_service_config(service_name)
     port = config.port
+
+    # Mutual exclusion: stop other services of same type (TTS/STT only)
+    if config.type in (ServiceType.TTS, ServiceType.STT):
+        active = get_active_services_by_type(config.type)
+        stopped = []
+        for other in active:
+            if other != service_name:
+                await stop_service(other)
+                stopped.append(other)
+        if stopped:
+            logger.info(f"Stopped {', '.join(stopped)} (switching {config.type.value})")
 
     # Check if already running - connect uses process detection, others use port
     if service_name == "connect":
