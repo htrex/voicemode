@@ -1,4 +1,7 @@
 """Tests for service registry."""
+import os
+import tempfile
+
 import pytest
 
 
@@ -81,3 +84,51 @@ class TestBuiltinServices:
         assert BUILTIN_SERVICES["kokoro"].type == ServiceType.TTS
         assert BUILTIN_SERVICES["voicemode"].type == ServiceType.INTERNAL
         assert BUILTIN_SERVICES["connect"].type == ServiceType.INTERNAL
+
+
+class TestUserServices:
+    def test_load_user_services_no_file(self):
+        from voice_mode.services.registry import load_user_services
+
+        # With non-existent path, should return empty dict
+        result = load_user_services("/nonexistent/path/services.yaml")
+        assert result == {}
+
+    def test_load_user_services_valid_yaml(self):
+        from voice_mode.services.registry import load_user_services
+        from voice_mode.services import ServiceType
+
+        yaml_content = """
+services:
+  chatterbox:
+    type: tts
+    port: 8881
+    template: generic
+
+  azzurra:
+    type: tts
+    port: 8890
+    template: generic
+"""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+            f.write(yaml_content)
+            f.flush()
+
+            try:
+                result = load_user_services(f.name)
+
+                assert "chatterbox" in result
+                assert "azzurra" in result
+                assert result["chatterbox"].type == ServiceType.TTS
+                assert result["chatterbox"].port == 8881
+                assert result["azzurra"].port == 8890
+            finally:
+                os.unlink(f.name)
+
+    def test_get_service_registry_combines_builtin_and_user(self):
+        from voice_mode.services.registry import get_service_registry
+
+        # Without user services, should have builtin only
+        registry = get_service_registry()
+        assert "whisper" in registry
+        assert "kokoro" in registry
