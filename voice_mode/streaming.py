@@ -524,7 +524,8 @@ async def stream_with_buffering(
                             # Play audio
                             stream.write(samples)
                             metrics.chunks_played += len(samples) // 1024
-                            
+                            metrics.total_samples_written = getattr(metrics, 'total_samples_written', 0) + len(samples)
+
                             # Reset buffer for next batch
                             buffer = io.BytesIO()
                             
@@ -544,13 +545,14 @@ async def stream_with_buffering(
                     
                 stream.write(samples)
                 metrics.chunks_played += len(samples) // 1024
-                
+                metrics.total_samples_written = getattr(metrics, 'total_samples_written', 0) + len(samples)
+
             except Exception as e:
                 logger.error(f"Failed to decode final buffer: {e}")
 
         # Wait for playback to complete
-        # Calculate duration based on total samples written at sample_rate
-        total_samples = metrics.chunks_played * 1024  # Approximate
+        # Calculate duration based on actual samples written at sample_rate
+        total_samples = getattr(metrics, 'total_samples_written', 0)
         audio_duration = total_samples / sample_rate
         elapsed = time.perf_counter() - start_time
         remaining_playback = max(0, audio_duration - elapsed + 0.1)  # +100ms buffer
